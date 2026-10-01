@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
-import { CalDavCalendarData, CalDavQueryResult, ProxyConfig } from './types';
+import { CalDavCalendarData, CalDavQueryResult, ProxyConfig, getCaldavUrls } from './types';
 
 /**
  * Formats a Date into CalDAV UTC time format: YYYYMMDDTHHMMSSZ
@@ -165,10 +165,13 @@ export function parseCalDavResponse(xmlText: string): CalDavCalendarData[] {
 }
 
 /**
- * Executes the CalDAV query against the server
+ * Executes a CalDAV query against a single calendar collection URL
  */
-export async function fetchCalDavEvents(config: ProxyConfig): Promise<CalDavQueryResult> {
-  const url = new URL(config.caldavUrl);
+export async function fetchSingleCalDav(
+  caldavUrl: string,
+  config: ProxyConfig
+): Promise<CalDavQueryResult> {
+  const url = new URL(caldavUrl);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/xml; charset=utf-8',
@@ -199,11 +202,11 @@ export async function fetchCalDavEvents(config: ProxyConfig): Promise<CalDavQuer
   });
 
   if (response.status === 401) {
-    throw new Error('CalDAV authentication failed (401 Unauthorized). Please check username and password.');
+    throw new Error(`CalDAV authentication failed (401 Unauthorized) for URL: ${cleanUrl}. Please check username and password.`);
   }
 
   if (response.status === 403) {
-    throw new Error('CalDAV access forbidden (403 Forbidden). You may lack permission for this calendar.');
+    throw new Error(`CalDAV access forbidden (403 Forbidden) for URL: ${cleanUrl}. You may lack permission for this calendar.`);
   }
 
   if (response.status === 404) {
@@ -224,5 +227,28 @@ export async function fetchCalDavEvents(config: ProxyConfig): Promise<CalDavQuer
 
   return {
     calendarDataList,
+  };
+}
+
+/**
+ * Executes the CalDAV query against one or more calendar collections and merges the results
+ */
+export async function fetchCalDavEvents(config: ProxyConfig): Promise<CalDavQueryResult> {
+  const urls = getCaldavUrls(config);
+  if (urls.length === 0) {
+    throw new Error('No CalDAV collection URLs provided.');
+  }
+
+  const results = await Promise.all(
+    urls.map((url) => fetchSingleCalDav(url, config))
+  );
+
+  const combinedCalendarDataList: CalDavCalendarData[] = [];
+  for (const res of results) {
+    combinedCalendarDataList.push(...res.calendarDataList);
+  }
+
+  return {
+    calendarDataList: combinedCalendarDataList,
   };
 }

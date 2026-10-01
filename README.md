@@ -74,7 +74,7 @@ https://<worker-subdomain>.workers.dev/calendar.ics?url=<CALDAV_COLLECTION_URL>&
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `url` / `caldav_url` | `string` | *(Required)* | URL to the CalDAV calendar collection |
+| `url` / `caldav_url` | `string` | *(Required)* | URL to the CalDAV calendar collection; parameter can be used multiple times |
 | `user` / `username` | `string` | optional | HTTP Basic Auth username |
 | `pass` / `password` | `string` | optional | HTTP Basic Auth password / app token |
 | `name` / `calendar_name` | `string` | `Subscribed Calendar` | Custom calendar display name (`X-WR-CALNAME`) |

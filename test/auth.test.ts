@@ -69,4 +69,74 @@ describe('Auth & Config Parsing', () => {
     const config = extractConfigFromRequest(req);
     expect(config).toBeNull();
   });
+
+  it('extracts multiple URLs from repeated url= query params', () => {
+    const req = new Request(
+      'https://proxy.worker.dev/calendar.ics?url=https%3A%2F%2Fcal.test%2Fwork&url=https%3A%2F%2Fcal.test%2Fpersonal&user=alice&pass=secret'
+    );
+    const config = extractConfigFromRequest(req);
+    expect(config).not.toBeNull();
+    expect(config?.caldavUrls).toEqual([
+      'https://cal.test/work',
+      'https://cal.test/personal',
+    ]);
+    expect(config?.caldavUrl).toBe('https://cal.test/work');
+    expect(config?.username).toBe('alice');
+  });
+
+  it('extracts multiple URLs from comma-separated url= param', () => {
+    const urls = 'https://cal.test/a,https://cal.test/b';
+    const req = new Request(
+      `https://proxy.worker.dev/calendar.ics?url=${encodeURIComponent(urls)}&user=bob`
+    );
+    const config = extractConfigFromRequest(req);
+    expect(config).not.toBeNull();
+    expect(config?.caldavUrls).toEqual([
+      'https://cal.test/a',
+      'https://cal.test/b',
+    ]);
+  });
+
+  it('extracts caldavUrls array from token', () => {
+    const token = encodeConfigToken({
+      caldavUrls: [
+        'https://caldav.example.com/work/',
+        'https://caldav.example.com/personal/',
+      ],
+      username: 'user@example.com',
+      password: 'pass',
+    });
+
+    const req = new Request(`https://proxy.worker.dev/subscribe/${token}.ics`);
+    const config = extractConfigFromRequest(req);
+    expect(config).not.toBeNull();
+    expect(config?.caldavUrls).toEqual([
+      'https://caldav.example.com/work/',
+      'https://caldav.example.com/personal/',
+    ]);
+    expect(config?.caldavUrl).toBe('https://caldav.example.com/work/');
+  });
+
+  it('single-URL token still populates caldavUrls', () => {
+    const token = encodeConfigToken({
+      caldavUrl: 'https://caldav.example.com/single/',
+      username: 'u',
+      password: 'p',
+    });
+
+    const req = new Request(`https://proxy.worker.dev/subscribe/${token}.ics`);
+    const config = extractConfigFromRequest(req);
+    expect(config).not.toBeNull();
+    expect(config?.caldavUrls).toEqual(['https://caldav.example.com/single/']);
+    expect(config?.caldavUrl).toBe('https://caldav.example.com/single/');
+  });
+
+  it('deduplicates identical URLs from query params', () => {
+    const req = new Request(
+      'https://proxy.worker.dev/calendar.ics?url=https%3A%2F%2Fcal.test%2Fwork&url=https%3A%2F%2Fcal.test%2Fwork'
+    );
+    const config = extractConfigFromRequest(req);
+    expect(config).not.toBeNull();
+    expect(config?.caldavUrls).toEqual(['https://cal.test/work']);
+  });
 });

@@ -54,13 +54,43 @@ export function extractConfigFromRequest(request: Request): ProxyConfig | null {
     tokenConfig = decodeConfigToken(url.searchParams.get('token')!);
   }
 
-  // Query parameters take precedence or fill in missing fields
-  const caldavUrl =
-    url.searchParams.get('caldav_url') ||
-    url.searchParams.get('url') ||
-    tokenConfig.caldavUrl;
+  // Extract URLs from query parameters
+  const queryUrls: string[] = [];
+  const urlParamKeys = ['caldav_url', 'caldav_urls', 'url', 'urls'];
+  for (const key of urlParamKeys) {
+    const vals = url.searchParams.getAll(key);
+    for (const val of vals) {
+      if (val) {
+        const parts = val.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean);
+        queryUrls.push(...parts);
+      }
+    }
+  }
 
-  if (!caldavUrl) {
+  // Extract URLs from token configuration if present
+  const tokenUrls: string[] = [];
+  if (Array.isArray(tokenConfig.caldavUrls)) {
+    for (const u of tokenConfig.caldavUrls) {
+      if (typeof u === 'string' && u.trim()) {
+        tokenUrls.push(u.trim());
+      }
+    }
+  } else if (typeof tokenConfig.caldavUrls === 'string') {
+    const parts = (tokenConfig.caldavUrls as string).split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean);
+    tokenUrls.push(...parts);
+  }
+
+  if (typeof tokenConfig.caldavUrl === 'string' && tokenConfig.caldavUrl.trim()) {
+    if (!tokenUrls.includes(tokenConfig.caldavUrl.trim())) {
+      tokenUrls.push(tokenConfig.caldavUrl.trim());
+    }
+  }
+
+  const caldavUrls = queryUrls.length > 0
+    ? Array.from(new Set(queryUrls))
+    : Array.from(new Set(tokenUrls));
+
+  if (caldavUrls.length === 0) {
     return null;
   }
 
@@ -134,7 +164,8 @@ export function extractConfigFromRequest(request: Request): ProxyConfig | null {
     tokenConfig.bypassCache;
 
   return {
-    caldavUrl,
+    caldavUrl: caldavUrls[0],
+    caldavUrls,
     username,
     password,
     calendarName,

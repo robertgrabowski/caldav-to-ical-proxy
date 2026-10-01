@@ -162,6 +162,32 @@ export function renderGeneratorHtml(): string {
     .btn-primary:hover { background: var(--primary-hover); }
     .btn-secondary { background: #334155; color: #fff; }
     .btn-secondary:hover { background: #475569; }
+    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+    .url-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .url-row input {
+      flex: 1;
+    }
+    .btn-remove-url {
+      background: #334155;
+      color: #f87171;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      width: 42px;
+      font-size: 1.25rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .btn-remove-url:hover {
+      background: #7f1d1d;
+      color: #fff;
+    }
     .guide-step {
       margin-bottom: 1rem;
       padding-bottom: 1rem;
@@ -189,9 +215,14 @@ export function renderGeneratorHtml(): string {
     <div class="card">
       <h2>CalDAV Server Credentials</h2>
       <div class="form-group">
-        <label for="caldavUrl">CalDAV Collection URL *</label>
-        <input type="text" id="caldavUrl" placeholder="https://caldav.example.com/dav/calendars/user/work/" required />
-        <div class="help">The direct WebDAV/CalDAV path to your target calendar collection.</div>
+        <label>CalDAV Collection URL(s) *</label>
+        <div id="urlContainer">
+          <div class="url-row">
+            <input type="text" class="caldav-url-input" placeholder="https://caldav.example.com/dav/calendars/user/work/" />
+          </div>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 0.25rem;" onclick="addUrlRow()">+ Add another calendar URL</button>
+        <div class="help">The direct WebDAV/CalDAV path(s) to your calendar collection(s). Add multiple URLs to merge several calendars into a single feed. All URLs must share the same username and password.</div>
       </div>
 
       <div class="grid">
@@ -286,9 +317,38 @@ export function renderGeneratorHtml(): string {
   </div>
 
   <script>
+    function getCaldavUrls() {
+      const inputs = document.querySelectorAll('.caldav-url-input');
+      const urls = [];
+      inputs.forEach(input => {
+        const v = input.value.trim();
+        if (v) urls.push(v);
+      });
+      return urls;
+    }
+
+    function addUrlRow() {
+      const container = document.getElementById('urlContainer');
+      const row = document.createElement('div');
+      row.className = 'url-row';
+      row.innerHTML = '<input type="text" class="caldav-url-input" placeholder="https://caldav.example.com/dav/calendars/user/personal/" /><button type="button" class="btn-remove-url" onclick="removeUrlRow(this)" title="Remove">&times;</button>';
+      container.appendChild(row);
+      const newInput = row.querySelector('input');
+      newInput.addEventListener('input', updateUrls);
+      newInput.addEventListener('change', updateUrls);
+      newInput.focus();
+      updateUrls();
+    }
+
+    function removeUrlRow(btn) {
+      const row = btn.closest('.url-row');
+      row.remove();
+      updateUrls();
+    }
+
     function updateUrls() {
       const origin = window.location.origin;
-      const caldavUrl = document.getElementById('caldavUrl').value.trim();
+      const caldavUrls = getCaldavUrls();
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
       const calendarName = document.getElementById('calendarName').value.trim();
@@ -297,16 +357,21 @@ export function renderGeneratorHtml(): string {
       const fetchAll = document.getElementById('fetchAll').checked;
       const cacheTtl = document.getElementById('cacheTtl').value.trim();
 
-      if (!caldavUrl) {
-        document.getElementById('encodedUrl').textContent = 'Please enter a CalDAV Collection URL above';
-        document.getElementById('webcalUrl').textContent = 'Please enter a CalDAV Collection URL above';
-        document.getElementById('queryUrl').textContent = 'Please enter a CalDAV Collection URL above';
+      if (caldavUrls.length === 0) {
+        document.getElementById('encodedUrl').textContent = 'Please enter at least one CalDAV Collection URL above';
+        document.getElementById('webcalUrl').textContent = 'Please enter at least one CalDAV Collection URL above';
+        document.getElementById('queryUrl').textContent = 'Please enter at least one CalDAV Collection URL above';
         document.getElementById('btnTest').removeAttribute('href');
         document.getElementById('btnSubscribe').removeAttribute('href');
         return;
       }
 
-      const config = { caldavUrl };
+      const config = {};
+      if (caldavUrls.length === 1) {
+        config.caldavUrl = caldavUrls[0];
+      } else {
+        config.caldavUrls = caldavUrls;
+      }
       if (username) config.username = username;
       if (password) config.password = password;
       if (calendarName) config.calendarName = calendarName;
@@ -332,7 +397,7 @@ export function renderGeneratorHtml(): string {
 
       // Query param URL
       const qParams = new URLSearchParams();
-      qParams.set('url', caldavUrl);
+      caldavUrls.forEach(u => qParams.append('url', u));
       if (username) qParams.set('user', username);
       if (password) qParams.set('pass', password);
       if (calendarName) qParams.set('name', calendarName);
@@ -373,3 +438,4 @@ export function renderGeneratorHtml(): string {
 </body>
 </html>`;
 }
+

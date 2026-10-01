@@ -1,5 +1,6 @@
 export interface ProxyConfig {
-  caldavUrl: string;
+  caldavUrl?: string;
+  caldavUrls?: string[];
   username?: string;
   password?: string;
   calendarName?: string;
@@ -10,6 +11,16 @@ export interface ProxyConfig {
   fetchAll?: boolean;
   cacheTtl?: number;  // in seconds
   bypassCache?: boolean;
+}
+
+export function getCaldavUrls(config: ProxyConfig): string[] {
+  if (config.caldavUrls && config.caldavUrls.length > 0) {
+    return config.caldavUrls;
+  }
+  if (config.caldavUrl) {
+    return [config.caldavUrl];
+  }
+  return [];
 }
 
 export interface CalDavCalendarData {

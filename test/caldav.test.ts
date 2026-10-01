@@ -5,7 +5,9 @@ import {
   buildCalendarQueryXml,
   parseCalDavResponse,
   fetchCalDavEvents,
+  fetchSingleCalDav,
 } from '../src/caldav';
+import { getCaldavUrls } from '../src/types';
 
 describe('CalDAV utility functions', () => {
   it('formats dates to CalDAV UTC format YYYYMMDDTHHMMSSZ', () => {
@@ -164,5 +166,101 @@ END:VCALENDAR</cal:calendar-data>
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('getCaldavUrls helper', () => {
+  it('returns caldavUrls when provided', () => {
+    expect(getCaldavUrls({
+      caldavUrls: ['https://a.test/', 'https://b.test/'],
+      caldavUrl: 'https://a.test/',
+    })).toEqual(['https://a.test/', 'https://b.test/']);
+  });
+
+  it('falls back to caldavUrl when caldavUrls is absent', () => {
+    expect(getCaldavUrls({
+      caldavUrl: 'https://single.test/',
+    })).toEqual(['https://single.test/']);
+  });
+
+  it('returns empty array when nothing is set', () => {
+    expect(getCaldavUrls({})).toEqual([]);
+  });
+
+  it('ignores empty caldavUrls array and falls back to caldavUrl', () => {
+    expect(getCaldavUrls({
+      caldavUrls: [],
+      caldavUrl: 'https://fallback.test/',
+    })).toEqual(['https://fallback.test/']);
+  });
+});
+
+describe('Multi-URL fetchCalDavEvents', () => {
+  it('fetches from multiple URLs and merges results', async () => {
+    const originalFetch = globalThis.fetch;
+
+    const makeCalDavResponse = (uid: string, summary: string) => `<?xml version="1.0" encoding="utf-8" ?>
+<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+  <D:response>
+    <D:href>/cal/${uid}.ics</D:href>
+    <D:propstat>
+      <D:prop>
+        <C:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:${uid}
+SUMMARY:${summary}
+END:VEVENT
+END:VCALENDAR</C:calendar-data>
+      </D:prop>
+      <D:status>HTTP/1.1 200 OK</D:status>
+    </D:propstat>
+  </D:response>
+</D:multistatus>`;
+
+    const fetchCalls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      fetchCalls.push(url);
+
+      if (url.includes('work-cal')) {
+        return new Response(makeCalDavResponse('work-1', 'Work Meeting'), {
+          status: 207,
+        });
+      } else if (url.includes('personal-cal')) {
+        return new Response(makeCalDavResponse('personal-1', 'Dentist'), {
+          status: 207,
+        });
+      }
+      return new Response('Not Found', { status: 404 });
+    }) as any;
+
+    try {
+      const result = await fetchCalDavEvents({
+        caldavUrls: [
+          'https://caldav.example.com/work-cal/',
+          'https://caldav.example.com/personal-cal/',
+        ],
+        username: 'user',
+        password: 'pass',
+      });
+
+      expect(fetchCalls.length).toBe(2);
+      expect(result.calendarDataList.length).toBe(2);
+
+      const allData = result.calendarDataList.map(d => d.calendarData).join('\n');
+      expect(allData).toContain('UID:work-1');
+      expect(allData).toContain('UID:personal-1');
+      expect(allData).toContain('SUMMARY:Work Meeting');
+      expect(allData).toContain('SUMMARY:Dentist');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('throws when no URLs are provided', async () => {
+    await expect(
+      fetchCalDavEvents({})
+    ).rejects.toThrow('No CalDAV collection URLs provided');
   });
 });

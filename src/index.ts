@@ -5,6 +5,7 @@ import { renderGeneratorHtml } from './ui';
 
 export interface Env {
   DEFAULT_CALDAV_URL?: string;
+  DEFAULT_CALDAV_URLS?: string;
   DEFAULT_USERNAME?: string;
   DEFAULT_PASSWORD?: string;
 }
@@ -45,12 +46,19 @@ export default {
     let config = extractConfigFromRequest(request);
 
     // If config didn't have URL, check if environment defaults exist
-    if (!config && env.DEFAULT_CALDAV_URL) {
-      config = {
-        caldavUrl: env.DEFAULT_CALDAV_URL,
-        username: env.DEFAULT_USERNAME,
-        password: env.DEFAULT_PASSWORD,
-      };
+    if (!config && (env.DEFAULT_CALDAV_URLS || env.DEFAULT_CALDAV_URL)) {
+      const defaultUrls = env.DEFAULT_CALDAV_URLS
+        ? env.DEFAULT_CALDAV_URLS.split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean)
+        : (env.DEFAULT_CALDAV_URL ? [env.DEFAULT_CALDAV_URL] : []);
+
+      if (defaultUrls.length > 0) {
+        config = {
+          caldavUrl: defaultUrls[0],
+          caldavUrls: defaultUrls,
+          username: env.DEFAULT_USERNAME,
+          password: env.DEFAULT_PASSWORD,
+        };
+      }
     }
 
     // If root path and no config provided, show generator Web UI
@@ -64,7 +72,8 @@ export default {
       });
     }
 
-    if (!config || !config.caldavUrl) {
+    const hasUrls = config && ((config.caldavUrls && config.caldavUrls.length > 0) || config.caldavUrl);
+    if (!config || !hasUrls) {
       return new Response(
         `Error: Missing CalDAV collection URL.\n\nUsage:\n1. Open ${url.origin} in your browser to generate subscription links\n2. Or subscribe via /calendar.ics?url=<caldav_url>&user=<username>&pass=<password>\n3. Or subscribe via /subscribe/<base64_token>.ics\n`,
         {
