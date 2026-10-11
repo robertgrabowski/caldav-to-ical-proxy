@@ -72,6 +72,21 @@ describe('Worker Request Handler', () => {
     expect(text).not.toContain('id="encryptPassword"');
   });
 
+  it('contains valid JavaScript syntax in the generated client script', async () => {
+    const resNoKey = await worker.fetch(new Request('https://proxy.test/'), {}, dummyCtx);
+    const htmlNoKey = await resNoKey.text();
+    const scriptNoKey = htmlNoKey.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(scriptNoKey).toBeDefined();
+    expect(() => new Function(scriptNoKey!)).not.toThrow();
+
+    const env = { RSA_PRIVATE_KEY: JSON.stringify(keyPair.privateKeyJwk) };
+    const resWithKey = await worker.fetch(new Request('https://proxy.test/'), env, dummyCtx);
+    const htmlWithKey = await resWithKey.text();
+    const scriptWithKey = htmlWithKey.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(scriptWithKey).toBeDefined();
+    expect(() => new Function(scriptWithKey!)).not.toThrow();
+  });
+
   it('returns 400 when missing caldav url on /calendar.ics', async () => {
     const req = new Request('https://proxy.test/calendar.ics');
     const res = await worker.fetch(req, {}, dummyCtx);
