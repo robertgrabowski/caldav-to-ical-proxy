@@ -1,4 +1,5 @@
 import { ProxyConfig } from './types';
+import { decryptPassword } from './crypto';
 
 /**
  * Encodes a ProxyConfig object into a URL-safe Base64 string
@@ -37,10 +38,19 @@ export function decodeConfigToken(token: string): Partial<ProxyConfig> {
   }
 }
 
+export type ExtractConfigContext =
+  | { privateKey?: CryptoKey | string | JsonWebKey; RSA_PRIVATE_KEY?: string }
+  | CryptoKey
+  | string;
+
 /**
- * Extracts ProxyConfig from Request (Query params, Basic Auth header, Path token)
+ * Extracts ProxyConfig from Request (Query params, Basic Auth header, Path token).
+ * Decrypts password_encrypted / pass_encrypted if password is not provided.
  */
-export function extractConfigFromRequest(request: Request): ProxyConfig | null {
+export async function extractConfigFromRequest(
+  request: Request,
+  options?: ExtractConfigContext
+): Promise<ProxyConfig | null> {
   const url = new URL(request.url);
 
   let tokenConfig: Partial<ProxyConfig> = {};
@@ -119,11 +129,34 @@ export function extractConfigFromRequest(request: Request): ProxyConfig | null {
     headerUsername ||
     tokenConfig.username;
 
-  const password =
+  let password =
     url.searchParams.get('password') ||
     url.searchParams.get('pass') ||
     headerPassword ||
     tokenConfig.password;
+
+  const password_encrypted =
+    url.searchParams.get('password_encrypted') ||
+    url.searchParams.get('pass_encrypted') ||
+    tokenConfig.password_encrypted;
+
+  if (!password && password_encrypted) {
+    let privateKey: CryptoKey | string | JsonWebKey | undefined;
+    if (typeof options === 'string' || (typeof CryptoKey !== 'undefined' && options instanceof CryptoKey)) {
+      privateKey = options;
+    } else if (options && typeof options === 'object') {
+      if ('RSA_PRIVATE_KEY' in options && options.RSA_PRIVATE_KEY) {
+        privateKey = options.RSA_PRIVATE_KEY;
+      } else if ('privateKey' in options && options.privateKey) {
+        privateKey = options.privateKey;
+      }
+    }
+
+    if (!privateKey) {
+      throw new Error('Encrypted password provided, but no RSA private key is configured on the server.');
+    }
+    password = await decryptPassword(password_encrypted, privateKey);
+  }
 
   const calendarName =
     url.searchParams.get('calendar_name') ||
@@ -168,6 +201,7 @@ export function extractConfigFromRequest(request: Request): ProxyConfig | null {
     caldavUrls,
     username,
     password,
+    password_encrypted,
     calendarName,
     pastDays: pastDays !== undefined && !isNaN(pastDays) ? pastDays : undefined,
     futureDays: futureDays !== undefined && !isNaN(futureDays) ? futureDays : undefined,

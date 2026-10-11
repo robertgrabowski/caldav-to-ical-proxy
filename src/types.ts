@@ -3,6 +3,7 @@ export interface ProxyConfig {
   caldavUrls?: string[];
   username?: string;
   password?: string;
+  password_encrypted?: string;
   calendarName?: string;
   pastDays?: number;
   futureDays?: number;

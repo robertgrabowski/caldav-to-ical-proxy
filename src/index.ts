@@ -2,12 +2,16 @@ import { extractConfigFromRequest } from './auth';
 import { fetchCalDavEvents } from './caldav';
 import { mergeCalendarData } from './ics';
 import { renderGeneratorHtml } from './ui';
+import { getPublicKeyJwkFromEnv } from './crypto';
+import { ProxyConfig } from './types';
 
 export interface Env {
   DEFAULT_CALDAV_URL?: string;
   DEFAULT_CALDAV_URLS?: string;
   DEFAULT_USERNAME?: string;
   DEFAULT_PASSWORD?: string;
+  RSA_PRIVATE_KEY?: string;
+  RSA_PUBLIC_KEY?: string;
 }
 
 export default {
@@ -42,8 +46,43 @@ export default {
       });
     }
 
+    // Public key endpoint
+    if (url.pathname === '/public-key.json' || url.pathname === '/api/public-key') {
+      const publicKeyJwk = await getPublicKeyJwkFromEnv(env);
+      if (!publicKeyJwk) {
+        return new Response(JSON.stringify({ error: 'RSA public key not configured' }), {
+          status: 404,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
+      return new Response(JSON.stringify({ publicKey: publicKeyJwk }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
+    }
+
     // Attempt to extract configuration from request
-    let config = extractConfigFromRequest(request);
+    let config: ProxyConfig | null = null;
+    try {
+      config = await extractConfigFromRequest(request, env);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      return new Response(`Error: ${errorMessage}\n`, {
+        status: 400,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
 
     // If config didn't have URL, check if environment defaults exist
     if (!config && (env.DEFAULT_CALDAV_URLS || env.DEFAULT_CALDAV_URL)) {
@@ -63,7 +102,8 @@ export default {
 
     // If root path and no config provided, show generator Web UI
     if (!config && (url.pathname === '/' || url.pathname === '/ui' || url.pathname === '/generator')) {
-      return new Response(renderGeneratorHtml(), {
+      const publicKeyJwk = await getPublicKeyJwkFromEnv(env);
+      return new Response(renderGeneratorHtml(publicKeyJwk), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',

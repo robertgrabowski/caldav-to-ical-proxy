@@ -76,7 +76,8 @@ https://<worker-subdomain>.workers.dev/calendar.ics?url=<CALDAV_COLLECTION_URL>&
 | :--- | :--- | :--- | :--- |
 | `url` / `caldav_url` | `string` | *(Required)* | URL to the CalDAV calendar collection; parameter can be used multiple times |
 | `user` / `username` | `string` | optional | HTTP Basic Auth username |
-| `pass` / `password` | `string` | optional | HTTP Basic Auth password / app token |
+| `password_encrypted` / `pass_encrypted` | `string` | optional | RSA-OAEP encrypted CalDAV password (URL-safe base64) |
+| `pass` / `password` | `string` | optional | HTTP Basic Auth password / app token (plaintext, legacy support) |
 | `name` / `calendar_name` | `string` | `Subscribed Calendar` | Custom calendar display name (`X-WR-CALNAME`) |
 | `past_days` | `number` | `30` | Number of days in the past to query |
 | `future_days` | `number` | `365` | Number of days in the future to query |
@@ -85,6 +86,34 @@ https://<worker-subdomain>.workers.dev/calendar.ics?url=<CALDAV_COLLECTION_URL>&
 | `all` | `boolean` | `false` | Set to `1` or `true` to fetch all events without date filtering |
 | `cache_ttl` / `ttl` | `number` | `300` | Cache lifetime at the edge in seconds |
 | `bypass_cache` | `boolean` | `false` | Set to `1` or pass `Cache-Control: no-cache` to force live fetch |
+
+---
+
+## Client-Side RSA Password Encryption
+
+To protect CalDAV passwords when subscription links are shared or passed around, the proxy supports asymmetric RSA-OAEP encryption:
+
+1. **Client-side Encryption**: The web generator encrypts passwords directly in the user's browser using the Web Cryptography API (`crypto.subtle`) and the proxy's public key.
+2. **Encrypted Parameter**: The password is transmitted as `password_encrypted` in query parameters or encoded securely inside the `/subscribe/<token>.ics` URL.
+3. **Decryption at the Edge**: The Cloudflare Worker decrypts the password on the fly using its private key before contacting the CalDAV server.
+4. **Legacy Compatibility**: Plaintext `password` / `pass` parameters continue to be supported.
+
+### Setting up RSA Keys
+
+Generate an RSA-OAEP key pair with:
+
+```bash
+npm run generate-keys
+```
+
+- **For local development**: Put `RSA_PRIVATE_KEY='{"kty":"RSA",...}'` into `.dev.vars`.
+- **For production**: Store the private key securely in Cloudflare using Wrangler:
+  ```bash
+  echo '<PRIVATE_KEY_JWK>' | npx wrangler secret put RSA_PRIVATE_KEY
+  ```
+  The public key is automatically derived from `RSA_PRIVATE_KEY`.
+
+---
 
 ---
 

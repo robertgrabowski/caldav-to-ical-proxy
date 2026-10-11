@@ -1,4 +1,4 @@
-export function renderGeneratorHtml(): string {
+export function renderGeneratorHtml(publicKeyJwk?: JsonWebKey | null): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -43,6 +43,13 @@ export function renderGeneratorHtml(): string {
     header p {
       color: var(--text-muted);
       font-size: 1.1rem;
+    }
+    .intro-text {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      max-width: 660px;
+      margin: 0.85rem auto 0;
+      line-height: 1.6;
     }
     .card {
       background: var(--surface);
@@ -107,6 +114,34 @@ export function renderGeneratorHtml(): string {
       width: 1.1rem;
       height: 1.1rem;
       accent-color: var(--primary);
+    }
+    .alert-warning {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid #f59e0b;
+      color: #fef3c7;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-top: -0.25rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .alert-info {
+      background: rgba(14, 165, 233, 0.12);
+      border: 1px solid #0284c7;
+      color: #e0f2fe;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      margin-top: -0.25rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
     .result-box {
       margin-top: 1rem;
@@ -210,6 +245,9 @@ export function renderGeneratorHtml(): string {
     <header>
       <h1>CalDAV-to-iCal Proxy</h1>
       <p>Convert any CalDAV calendar into an iCal (ICS) subscription feed</p>
+      <div class="intro-text">
+        This page helps you create proxy subscription URLs from your CalDAV calendar settings that you can subscribe to with any iCal client. All URLs are constructed entirely locally in your browser.
+      </div>
     </header>
 
     <div class="card">
@@ -234,6 +272,13 @@ export function renderGeneratorHtml(): string {
           <label for="password">Password / App Token</label>
           <input type="password" id="password" placeholder="••••••••••••" />
         </div>
+      </div>
+
+      <div id="cryptoNotice" class="${publicKeyJwk ? 'alert-info' : 'alert-warning'}">
+        ${publicKeyJwk
+          ? '<span><strong>🔒 Info:</strong> The password is included in encrypted form in the URL.</span>'
+          : "<span><strong>⚠️ Warning:</strong> The password will be passed in plain text in the URL because the public key isn't set on the server.</span>"
+        }
       </div>
 
       <div class="form-group">
@@ -273,7 +318,7 @@ export function renderGeneratorHtml(): string {
         <label>1. Clean Encoded URL (Recommended for all clients)</label>
         <div class="url-display">
           <span id="encodedUrl">Fill in CalDAV collection URL above</span>
-          <button class="btn-copy" onclick="copyText('encodedUrl')">Copy</button>
+          <button class="btn-copy" onclick="copyText('encodedUrl', this)">Copy</button>
         </div>
       </div>
 
@@ -281,7 +326,7 @@ export function renderGeneratorHtml(): string {
         <label>2. One-Click Webcal Subscription Link (Apple Calendar / macOS)</label>
         <div class="url-display">
           <span id="webcalUrl">Fill in CalDAV collection URL above</span>
-          <button class="btn-copy" onclick="copyText('webcalUrl')">Copy</button>
+          <button class="btn-copy" onclick="copyText('webcalUrl', this)">Copy</button>
         </div>
       </div>
 
@@ -289,7 +334,7 @@ export function renderGeneratorHtml(): string {
         <label>3. Explicit Query Parameter URL</label>
         <div class="url-display">
           <span id="queryUrl">Fill in CalDAV collection URL above</span>
-          <button class="btn-copy" onclick="copyText('queryUrl')">Copy</button>
+          <button class="btn-copy" onclick="copyText('queryUrl', this)">Copy</button>
         </div>
       </div>
 
@@ -317,6 +362,69 @@ export function renderGeneratorHtml(): string {
   </div>
 
   <script>
+    const serverPublicKeyJwk = ${JSON.stringify(publicKeyJwk || null)};
+    const hasCryptoSupport = typeof window !== 'undefined' && !!(window.crypto && window.crypto.subtle && typeof window.crypto.subtle.importKey === 'function');
+    const hasPublicKey = !!serverPublicKeyJwk;
+    const canEncrypt = hasCryptoSupport && hasPublicKey;
+
+    const noticeElem = document.getElementById('cryptoNotice');
+    if (noticeElem) {
+      if (canEncrypt) {
+        noticeElem.className = 'alert-info';
+        noticeElem.innerHTML = '<span><strong>🔒 Info:</strong> The password is included in encrypted form in the URL.</span>';
+        noticeElem.style.display = 'flex';
+      } else {
+        let reason = '';
+        if (!hasPublicKey && !hasCryptoSupport) {
+          reason = "the public key isn't set on the server and the browser doesn't support the Crypto API.";
+        } else if (!hasPublicKey) {
+          reason = "the public key isn't set on the server.";
+        } else {
+          reason = "the browser doesn't support the Crypto API.";
+        }
+        noticeElem.className = 'alert-warning';
+        noticeElem.innerHTML = '<span><strong>⚠️ Warning:</strong> The password will be passed in plain text in the URL because ' + reason + '</span>';
+        noticeElem.style.display = 'flex';
+      }
+    }
+
+    let cachedPublicKey = null;
+
+    async function getPublicKey() {
+      if (cachedPublicKey) return cachedPublicKey;
+      if (!serverPublicKeyJwk) return null;
+      try {
+        cachedPublicKey = await window.crypto.subtle.importKey(
+          'jwk',
+          serverPublicKeyJwk,
+          { name: 'RSA-OAEP', hash: 'SHA-256' },
+          false,
+          ['encrypt']
+        );
+        return cachedPublicKey;
+      } catch (err) {
+        console.error('Failed to import public key:', err);
+        return null;
+      }
+    }
+
+    async function encryptPasswordClient(plaintext) {
+      const pubKey = await getPublicKey();
+      if (!pubKey) throw new Error('No public key available');
+      const encoded = new TextEncoder().encode(plaintext);
+      const cipherBuffer = await window.crypto.subtle.encrypt(
+        { name: 'RSA-OAEP' },
+        pubKey,
+        encoded
+      );
+      const bytes = new Uint8Array(cipherBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
     function getCaldavUrls() {
       const inputs = document.querySelectorAll('.caldav-url-input');
       const urls = [];
@@ -346,11 +454,15 @@ export function renderGeneratorHtml(): string {
       updateUrls();
     }
 
-    function updateUrls() {
+    let updateCounter = 0;
+
+    async function updateUrls() {
+      const currentSeq = ++updateCounter;
       const origin = window.location.origin;
       const caldavUrls = getCaldavUrls();
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
+      const shouldEncrypt = canEncrypt;
       const calendarName = document.getElementById('calendarName').value.trim();
       const pastDays = document.getElementById('pastDays').value.trim();
       const futureDays = document.getElementById('futureDays').value.trim();
@@ -366,6 +478,17 @@ export function renderGeneratorHtml(): string {
         return;
       }
 
+      let encryptedPassword = null;
+      if (password && shouldEncrypt) {
+        try {
+          encryptedPassword = await encryptPasswordClient(password);
+        } catch (err) {
+          console.error('Client encryption error:', err);
+        }
+      }
+
+      if (currentSeq !== updateCounter) return;
+
       const config = {};
       if (caldavUrls.length === 1) {
         config.caldavUrl = caldavUrls[0];
@@ -373,7 +496,15 @@ export function renderGeneratorHtml(): string {
         config.caldavUrls = caldavUrls;
       }
       if (username) config.username = username;
-      if (password) config.password = password;
+
+      if (password) {
+        if (encryptedPassword) {
+          config.password_encrypted = encryptedPassword;
+        } else {
+          config.password = password;
+        }
+      }
+
       if (calendarName) config.calendarName = calendarName;
       if (fetchAll) {
         config.fetchAll = true;
@@ -399,7 +530,13 @@ export function renderGeneratorHtml(): string {
       const qParams = new URLSearchParams();
       caldavUrls.forEach(u => qParams.append('url', u));
       if (username) qParams.set('user', username);
-      if (password) qParams.set('pass', password);
+      if (password) {
+        if (encryptedPassword) {
+          qParams.set('password_encrypted', encryptedPassword);
+        } else {
+          qParams.set('pass', password);
+        }
+      }
       if (calendarName) qParams.set('name', calendarName);
       if (fetchAll) qParams.set('all', '1');
       if (pastDays && pastDays !== '30') qParams.set('past_days', pastDays);
@@ -416,14 +553,16 @@ export function renderGeneratorHtml(): string {
       document.getElementById('btnSubscribe').setAttribute('href', webcalUrl);
     }
 
-    function copyText(elemId) {
+    function copyText(elemId, btn) {
       const text = document.getElementById(elemId).textContent;
       if (text.startsWith('http') || text.startsWith('webcal')) {
         navigator.clipboard.writeText(text).then(() => {
-          const btn = event.target;
-          const orig = btn.textContent;
-          btn.textContent = 'Copied!';
-          setTimeout(() => btn.textContent = orig, 1500);
+          const targetBtn = btn || (typeof event !== 'undefined' ? event.target : null);
+          if (targetBtn) {
+            const orig = targetBtn.textContent;
+            targetBtn.textContent = 'Copied!';
+            setTimeout(() => targetBtn.textContent = orig, 1500);
+          }
         });
       }
     }
